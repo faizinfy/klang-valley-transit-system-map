@@ -11,9 +11,10 @@ interface Props {
   onChange: (from: Station | null, to: Station | null) => void;
   onOptions: (o: RouteOptions) => void;
   onOpenStation: (s: Station) => void;
+  onShowMap: () => void;
 }
 
-export function RoutePlanner({ from, to, options, onChange, onOptions, onOpenStation }: Props) {
+export function RoutePlanner({ from, to, options, onChange, onOptions, onOpenStation, onShowMap }: Props) {
   const route = useMemo(
     () => (from && to ? findRoute(network, from.id, to.id, options) : null),
     [from, to, options],
@@ -64,10 +65,13 @@ export function RoutePlanner({ from, to, options, onChange, onOptions, onOpenSta
 
       {route && route.legs.length > 0 && (
         <div className="route">
-          <p className="route__summary">
-            <strong>{route.stops}</strong> {route.stops === 1 ? 'stop' : 'stops'} ·{' '}
-            <strong>{route.transfers}</strong> {route.transfers === 1 ? 'transfer' : 'transfers'}
-          </p>
+          <div className="route__head">
+            <p className="route__summary">
+              <strong>{route.stops}</strong> {route.stops === 1 ? 'stop' : 'stops'} ·{' '}
+              <strong>{route.transfers}</strong> {route.transfers === 1 ? 'transfer' : 'transfers'}
+            </p>
+            <button type="button" className="btn" onClick={onShowMap}>🗺 Show on map</button>
+          </div>
           <RouteJourney key={`${from!.id}|${to!.id}|${options.includePlanned}|${options.includeSuspended}`} route={route} onOpenStation={onOpenStation} />
           <p className="fineprint">
             Stop counts skip provisional stations. Timings and fares aren’t on the source map, so they aren’t shown.

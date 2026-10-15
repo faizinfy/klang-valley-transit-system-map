@@ -10,6 +10,9 @@ KTMB for live service information.
 
 - **Route planner** – fewest transfers / stops between any two stations, with interchange and walking
   (connecting-station) transfers. Share a route as a link, e.g. `/?from=KJ24&to=KG26`.
+- **Journey animation** – press Play to watch a train run the planned route, with a walking figure at transfers.
+- **Map** – the whole network drawn from real station positions (outer areas pulled in so everything fits).
+  Pan, zoom, tap a station to plan from/to it, and watch the train travel your route on the map.
 - **Lines** – every line in running order, with transfer badges at each stop.
 - **Stations** – codes, lines, neighbouring stops and walking connections.
 - The planned **Circle Line** and the suspended **KTM Skypark Link** are in the data and shown in the
@@ -35,6 +38,15 @@ All network data lives in [`src/data/network.ts`](src/data/network.ts):
   with a planned line).
 
 Corrections to apparent misprints on the source map are listed at the top of that file.
+
+Station positions for the map live in [`src/data/coords.ts`](src/data/coords.ts), generated from
+OpenStreetMap (© OpenStreetMap contributors, ODbL). Stations not yet built (Circle Line, Sunway BRT stops) are
+hand-placed approximations in `scripts/build-coords.ts`. To regenerate after changing the network:
+
+```bash
+node scripts/fetch-osm-stations.cjs osm.json
+npx vite-node scripts/build-coords.ts osm.json
+```
 
 ## Deploy to Vercel
 

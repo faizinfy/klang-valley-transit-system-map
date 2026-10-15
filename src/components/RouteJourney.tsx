@@ -1,51 +1,13 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { buildTimeline, isRideSegment, positionAt, routeRows, type Row } from '../lib/journey';
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { buildTimeline, describeRow, direction, isRideSegment, positionAt, routeRows, rowColor } from '../lib/journey';
 import { network, type Station, type Stop } from '../lib/network';
-import type { RideLeg, Route } from '../lib/router';
+import type { Route } from '../lib/router';
+import { usePlayer, usePrefersReducedMotion } from '../lib/usePlayer';
 import { CodePill, LineBadge } from './Badges';
+import { PlayerControls } from './PlayerControls';
 
-const SPEEDS = [1, 2, 4];
 const TRACK_X = 20; // centre of the track, px from the left of the list
 const FOLLOW_MARGIN = 72; // keep the train this far above the bottom of the window
-
-function direction(leg: RideLeg): string {
-  const line = network.lineById.get(leg.lineId)!;
-  const stops = network.stopsByLine.get(leg.lineId)!;
-  const [a, b] = [leg.stops[0], leg.stops[1]];
-  if (line.loop) {
-    const forward = (b.index - a.index + stops.length) % stops.length < stops.length / 2;
-    return forward ? 'clockwise (CC1 → CC33)' : 'anticlockwise (CC33 → CC1)';
-  }
-  const end = b.index > a.index ? stops[stops.length - 1] : stops[0];
-  return `towards ${end.name}`;
-}
-
-const lineColor = (row: Row | undefined) =>
-  row?.kind === 'stop' ? network.lineById.get(row.leg.lineId)!.color : undefined;
-
-function describe(row: Row): string | null {
-  if (row.kind === 'transfer') {
-    return row.leg.type === 'connecting'
-      ? `Walking from ${row.leg.from.name} to ${row.leg.to.name}`
-      : `Changing lines at ${row.leg.from.name}`;
-  }
-  const line = network.lineById.get(row.leg.lineId)!;
-  if (row.role === 'board') return `Boarding the ${line.name} at ${row.stop.name}`;
-  if (row.role === 'alight') return `Arriving at ${row.stop.name}`;
-  return null;
-}
-
-function usePrefersReducedMotion(): boolean {
-  const query = '(prefers-reduced-motion: reduce)';
-  const [reduced, setReduced] = useState(() => matchMedia(query).matches);
-  useEffect(() => {
-    const mq = matchMedia(query);
-    const onChange = () => setReduced(mq.matches);
-    mq.addEventListener('change', onChange);
-    return () => mq.removeEventListener('change', onChange);
-  }, []);
-  return reduced;
-}
 
 interface Props {
   route: Route;
@@ -60,11 +22,8 @@ export function RouteJourney({ route, onOpenStation }: Props) {
   const listRef = useRef<HTMLOListElement>(null);
   const anchorRefs = useRef<(HTMLElement | null)[]>([]);
   const travellerRef = useRef<HTMLDivElement>(null);
-  const timeRef = useRef(0);
   const [ys, setYs] = useState<number[]>([]);
   const [height, setHeight] = useState(0);
-  const [playing, setPlaying] = useState(false);
-  const [speed, setSpeed] = useState(1);
   const [current, setCurrent] = useState(-1); // row reached; -1 before the first play
   const currentRef = useRef(-1);
   const [announcement, setAnnouncement] = useState('');
@@ -91,21 +50,20 @@ export function RouteJourney({ route, onOpenStation }: Props) {
   }, [measure]);
 
   const draw = useCallback(
-    (follow: boolean) => {
+    (time: number, follow: boolean) => {
       const el = travellerRef.current;
       if (!el || ys.length !== rows.length) return;
-      const { pos, mode, row } = positionAt(segments, timeRef.current);
+      const { pos, mode, row } = positionAt(segments, time);
       const i = Math.floor(pos), f = pos - i;
       const y = ys[i] + ((ys[i + 1] ?? ys[i]) - ys[i]) * f;
       el.style.transform = `translate(${TRACK_X}px, ${y}px)`;
       el.dataset.mode = mode;
-      const color = lineColor(rows[i]) ?? lineColor(rows[i + 1]) ?? '#888';
-      el.style.setProperty('--train', color);
-      if (timeRef.current === 0) return; // not started: park the train, highlight nothing
+      el.style.setProperty('--train', rowColor(rows[i]) ?? rowColor(rows[i + 1]) ?? '#888');
+      if (time === 0) return; // not started: park the train, highlight nothing
       if (currentRef.current !== row) {
         currentRef.current = row;
         setCurrent(row);
-        const text = describe(rows[row]);
+        const text = describeRow(rows[row]);
         if (text) setAnnouncement(text);
       }
       if (follow) {
@@ -117,36 +75,16 @@ export function RouteJourney({ route, onOpenStation }: Props) {
     [rows, segments, ys],
   );
 
-  useLayoutEffect(() => {
-    if (!playing) draw(false);
-  }, [draw, playing]);
+  const player = usePlayer(total, draw);
+  const { redraw } = player;
+  useLayoutEffect(() => redraw(), [draw, redraw]);
 
-  useEffect(() => {
-    if (!playing) return;
-    let raf = 0;
-    let last = performance.now();
-    const tick = (now: number) => {
-      timeRef.current = Math.min(total, timeRef.current + (now - last) * speed);
-      last = now;
-      draw(true);
-      if (timeRef.current >= total) {
-        setPlaying(false);
-        return;
-      }
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [playing, speed, total, draw]);
-
-  const finished = current === rows.length - 1 && timeRef.current >= total;
   const play = () => {
-    if (finished) {
-      timeRef.current = 0;
+    if (player.finished) {
       currentRef.current = -1;
       setCurrent(-1);
     }
-    setPlaying(true);
+    player.play();
   };
   const station = (s: Stop) => network.stations.get(s.stationId)!;
   const animate = !reducedMotion;
@@ -155,17 +93,7 @@ export function RouteJourney({ route, onOpenStation }: Props) {
     <div className="journey">
       {animate && (
         <div className="journey__controls">
-          <button type="button" className="btn btn--primary" onClick={playing ? () => setPlaying(false) : play}>
-            {playing ? '❚❚ Pause' : finished ? '↺ Replay' : current >= 0 ? '▶ Resume' : '▶ Play journey'}
-          </button>
-          <button
-            type="button"
-            className="btn"
-            onClick={() => setSpeed((s) => SPEEDS[(SPEEDS.indexOf(s) + 1) % SPEEDS.length])}
-            aria-label={`Animation speed ${speed} times. Change speed`}
-          >
-            {speed}×
-          </button>
+          <PlayerControls player={player} started={current >= 0} onPlay={play} />
         </div>
       )}
       <p className="sr-only" aria-live="polite">{announcement}</p>
@@ -175,7 +103,7 @@ export function RouteJourney({ route, onOpenStation }: Props) {
           {ys.length === rows.length &&
             rows.slice(0, -1).map((_, i) =>
               isRideSegment(rows, i) ? (
-                <line key={i} x1={TRACK_X} x2={TRACK_X} y1={ys[i]} y2={ys[i + 1]} stroke={lineColor(rows[i])} strokeWidth={6} />
+                <line key={i} x1={TRACK_X} x2={TRACK_X} y1={ys[i]} y2={ys[i + 1]} stroke={rowColor(rows[i])} strokeWidth={6} />
               ) : (
                 <line key={i} x1={TRACK_X} x2={TRACK_X} y1={ys[i]} y2={ys[i + 1]} className="journey__walk-line" />
               ),
@@ -189,7 +117,7 @@ export function RouteJourney({ route, onOpenStation }: Props) {
                   cy={ys[i]}
                   r={row.role === 'via' ? 4.5 : 7}
                   className="journey__dot"
-                  stroke={lineColor(row)}
+                  stroke={rowColor(row)}
                   strokeWidth={row.role === 'via' ? 2.5 : 3.5}
                 />
               ) : null,

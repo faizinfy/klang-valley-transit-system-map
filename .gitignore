@@ -3,3 +3,4 @@ dist
 .vercel
 *.log
 .claude/settings.local.json
+osm.json

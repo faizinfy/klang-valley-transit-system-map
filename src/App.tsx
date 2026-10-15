@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { LineExplorer } from './components/LineExplorer';
+import { MapView } from './components/MapView';
 import { RoutePlanner } from './components/RoutePlanner';
 import { StationLookup } from './components/StationLookup';
 import { findStation, network, primaryCode, type LineDef, type Station } from './lib/network';
 import type { RouteOptions } from './lib/router';
 
-type Tab = 'plan' | 'lines' | 'station';
+type Tab = 'plan' | 'map' | 'lines' | 'station';
 const TABS: { id: Tab; label: string }[] = [
   { id: 'plan', label: 'Route planner' },
+  { id: 'map', label: 'Map' },
   { id: 'lines', label: 'Lines' },
   { id: 'station', label: 'Stations' },
 ];
@@ -22,7 +24,7 @@ interface State {
 }
 
 // State lives in the query string so any view can be shared as a link,
-// e.g. ?from=KJ24&to=KG26 or ?tab=lines&line=KJ.
+// e.g. ?from=KJ24&to=KG26, ?tab=map&from=KJ24&to=KG26 or ?tab=lines&line=KJ.
 function readUrl(): State {
   const q = new URLSearchParams(location.search);
   const st = (k: string) => (q.get(k) ? findStation(network, q.get(k)!) ?? null : null);
@@ -40,7 +42,7 @@ function readUrl(): State {
 function writeUrl(s: State, replace: boolean) {
   const q = new URLSearchParams();
   if (s.tab !== 'plan') q.set('tab', s.tab);
-  if (s.tab === 'plan') {
+  if (s.tab === 'plan' || s.tab === 'map') {
     if (s.from) q.set('from', primaryCode(s.from));
     if (s.to) q.set('to', primaryCode(s.to));
     if (s.options.includePlanned) q.set('planned', '1');
@@ -107,7 +109,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="main">
+      <main className={`main${state.tab === 'map' ? ' main--wide' : ''}`}>
         {state.tab === 'plan' && (
           <RoutePlanner
             from={state.from}
@@ -116,6 +118,17 @@ export default function App() {
             onChange={(from, to) => update({ from, to })}
             onOptions={(options) => update({ options })}
             onOpenStation={openStation}
+            onShowMap={() => update({ tab: 'map' })}
+          />
+        )}
+        {state.tab === 'map' && (
+          <MapView
+            from={state.from}
+            to={state.to}
+            options={state.options}
+            onChange={(from, to) => update({ from, to })}
+            onOpenStation={openStation}
+            onShowSteps={() => update({ tab: 'plan' })}
           />
         )}
         {state.tab === 'lines' && (

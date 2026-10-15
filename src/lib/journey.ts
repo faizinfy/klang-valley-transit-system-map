@@ -1,4 +1,4 @@
-import type { Stop } from './network';
+import { network, type Stop } from './network';
 import type { RideLeg, Route, TransferLeg } from './router';
 
 // A route flattened into the rows of the journey view, plus a timeline that
@@ -60,6 +60,35 @@ export function buildTimeline(rows: Row[]): { segments: Segment[]; total: number
     else push(i, i + 1, TIMING.walk, 'walk');
   }
   return { segments, total: t };
+}
+
+export const rowColor = (row: Row | undefined) =>
+  row?.kind === 'stop' ? network.lineById.get(row.leg.lineId)!.color : undefined;
+
+/** Which way a ride leg runs, e.g. "towards Putra Heights". */
+export function direction(leg: RideLeg): string {
+  const line = network.lineById.get(leg.lineId)!;
+  const stops = network.stopsByLine.get(leg.lineId)!;
+  const [a, b] = [leg.stops[0], leg.stops[1]];
+  if (line.loop) {
+    const forward = (b.index - a.index + stops.length) % stops.length < stops.length / 2;
+    return forward ? 'clockwise (CC1 → CC33)' : 'anticlockwise (CC33 → CC1)';
+  }
+  const end = b.index > a.index ? stops[stops.length - 1] : stops[0];
+  return `towards ${end.name}`;
+}
+
+/** Screen-reader announcement for reaching a row, if it's a key moment. */
+export function describeRow(row: Row): string | null {
+  if (row.kind === 'transfer') {
+    return row.leg.type === 'connecting'
+      ? `Walking from ${row.leg.from.name} to ${row.leg.to.name}`
+      : `Changing lines at ${row.leg.from.name}`;
+  }
+  const line = network.lineById.get(row.leg.lineId)!;
+  if (row.role === 'board') return `Boarding the ${line.name} at ${row.stop.name}`;
+  if (row.role === 'alight') return `Arriving at ${row.stop.name}`;
+  return null;
 }
 
 const ease = (p: number) => (p < 0.5 ? 2 * p * p : 1 - (-2 * p + 2) ** 2 / 2);
